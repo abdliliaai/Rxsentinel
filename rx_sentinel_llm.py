@@ -145,7 +145,11 @@ class RxSentinelAgents:
             - Creams/Gels: Use volume measurements like "30 ML", "15 ML"
             - Injectables: Use volume measurements like "10 ML", "5 ML", "2 ML"
             - Troches/ODT: Use numeric counts like "30", "60"
-
+            Clarification on Quantity and CDS:
+            - Quantity must always be a clear number with unit (e.g., '1 vial', '30 tablets').
+            - Do NOT include any Clinical Difference Statement in the Quantity field.
+            - Clinical Difference Statements (e.g., notes about dose titration or compounding necessity) must be placed in the "Quality_Notes" field within the Medication object.
+            - If CDS is present after the dosage or frequency, isolate it and map only to Quality_Notes.
             IMPORTANT: For compound medications, if you recognize any of the following medications, replace the quantity field with the corresponding medical justification text:
 
             COMPOUND MEDICATION JUSTIFICATIONS:
