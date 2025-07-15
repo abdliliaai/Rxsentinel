@@ -943,119 +943,230 @@ def compounding_compliance_agent(self, state: RxState) -> RxState:
             state["compounding_compliance"] = compliance_result
             return state
 
+    def compounding_compliance_agent(self, state: RxState) -> RxState:
+        """Agent 8: Compounded Medication & Shipping Governance using LLM"""
+        try:
+            medications = state["prescription_data"].get("Medications", [])
+            patient_info = state["prescription_data"].get("Patient Info", {})
+            state_compliance = state.get("state_compliance", {})
+            
+            # FIXED: Escaped JSON structure with double curly braces
+            system_prompt = """You are a Compounding Compliance Agent responsible for compounded medication regulations and shipping governance.
+
+            Analyze for compounding compliance:
+            1. Identify compounded medications
+            2. Determine if compounding is required
+            3. 503A vs 503B facility requirements
+            4. State-specific compounding restrictions
+            5. Injectable compound restrictions
+            6. Vial type requirements
+            7. Extract complete shipping details directly from the prescription
+
+            Key restrictions:
+            - MA, CO, WA, OR, VT ban certain injectable compounds
+            - AL, AR, OK require shipping to clinics only
+            - 503A for <5 compounds, 503B for bulk
+
+            Important:
+            - Do NOT assume or hardcode values like "standard" or "clinic_delivery".
+            - Extract and return exactly what is written in the prescription for:
+            - shipping service (e.g., "UPS 2-Day Refrigerated (EP)")
+            - recipient name (e.g., "MEGAN DEL CORRAL")
+            - full recipient address (multi-line)
+            - signature requirement (true/false based on whether "Signature Required" is mentioned)
+
+            - Treat shipping as a dedicated section in the response JSON. Do not bury this inside any nested field.
+            - Base all fields purely on actual content in the prescription. Do not fabricate missing values.
+
+            Return ONLY valid JSON in the following format:
+            {{
+                "compounding_required": boolean,
+                "compounded_medications": [
+                    {{
+                        "name": "medication name",
+                        "type": "cream/gel/injection/suspension (based on actual content)",
+                        "facility_type_required": "503A/503B (based on medication and quantity)",
+                        "shipping_allowed": boolean,
+                        "restrictions": ["list of restrictions"]
+                    }}
+                ],
+                "vial_type_required": "503A/503B (based on medication)",
+                "shipping_restrictions": [
+                    {{
+                        "restriction_type": "state_ban/clinic_only/special_handling",
+                        "description": "what is restricted",
+                        "affected_medications": ["list of meds"]
+                    }}
+                ],
+                "shipping_details": {{
+                    "service": "e.g., UPS 2-Day Refrigerated (EP)",
+                    "recipient_name": "full name from prescription",
+                    "recipient_address": "full address from prescription",
+                    "signature_required": true or false
+                }},
+                "recipient_type": "patient/clinic/hospital (based on context)",
+                "compliance_status": "compliant/non-compliant/requires_review",
+                "alerts": [
+                    {{
+                        "type": "error/warning/info",
+                        "message": "compliance issue description",
+                        "severity": 1-5
+                    }}
+                ]
+            }}"""
+
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", system_prompt),
+                ("human", "Check compounding compliance:\nMedications: {medications}\nPatient: {patient_info}\nState Info: {state_compliance}")
+            ])
+            
+            parser = JsonOutputParser()
+            chain = prompt | self.llm | parser
+            
+            # Add to messages
+            human_message = HumanMessage(content="Checking compounding compliance and shipping governance")
+            state["messages"].append(human_message)
+            
+            compliance_result = chain.invoke({
+                "medications": json.dumps(medications, indent=2),
+                "patient_info": json.dumps(patient_info, indent=2),
+                "state_compliance": json.dumps(state_compliance, indent=2)
+            })
+            
+            # Process alerts from compounding compliance
+            for alert in compliance_result.get("alerts", []):
+                self._add_alert(alert["type"], "COMPOUNDING_COMPLIANCE", alert["message"], alert["severity"], True)
+            
+            # Add AI response to messages
+            ai_message = AIMessage(content=f"Compounding compliance check complete. Status: {compliance_result.get('compliance_status', 'unknown')}")
+            state["messages"].append(ai_message)
+            
+            self._add_audit_entry("COMPOUNDING_COMPLIANCE", "Compounding compliance check completed", compliance_result)
+            
+            state["compounding_compliance"] = compliance_result
+            return state
+            
+        except Exception as e:
+            self._add_alert("error", "COMPOUNDING_COMPLIANCE", f"Compounding compliance check failed: {str(e)}", 4, True)
+            state["compounding_compliance"] = {"error": str(e)}
+            return state 
+    
     def clinical_documentation_agent(self, state: RxState) -> RxState:
-  """Agent 8: Compounded Medication & Shipping Governance using LLM"""
-    try:
-        medications = state["prescription_data"].get("Medications", [])
-        patient_info = state["prescription_data"].get("Patient Info", {})
-        state_compliance = state.get("state_compliance", {})
-        ocr_text = state.get("ocr_text", "")
+        """Agent 9: Clinical Documentation Validation"""
+        try:
+            prescription_data = state["prescription_data"]
+            medications = prescription_data.get("medications", [])
+            patient_info = prescription_data.get("Patient Info", {})
+            state_compliance = state.get("state_compliance", {})
+            
+            system_prompt = """You are a Clinical Documentation Agent that validates supporting documentation for prescriptions.
+            
+            Verify documentation requirements:
+            1. Medical necessity documentation (also referred to internally as EGS/CDS)
+            2. Diagnosis documentation (ICD-10 codes)
+            3. Lab results (blood tests, diagnostic reports)
+            4. Treatment plans
+            5. Prior authorization records
+            6. Informed consent forms
+            7. LOV (Letter of Verification), if applicable
 
-        system_prompt = """You are a Compounding Compliance Agent responsible for compounded medication regulations and shipping governance.
+            Special requirements:
+            - Testosterone: Requires recent testosterone levels
+            - Weight loss medications: Requires BMI documentation
+            - Controlled substances: Requires pain contracts/special agreements
 
-Analyze for compounding compliance:
-1. Identify compounded medications
-2. Determine if compounding is required
-3. 503A vs 503B facility requirements
-4. State-specific compounding restrictions
-5. Injectable compound restrictions
-6. Vial type requirements
-7. Extract complete shipping details directly from the prescription
-
-Key restrictions:
-- MA, CO, WA, OR, VT ban certain injectable compounds
-- AL, AR, OK require shipping to clinics only
-- 503A for <5 compounds, 503B for bulk
-
-Important:
-- Do NOT assume or hardcode values like "standard" or "clinic_delivery".
-- Extract and return exactly what is written in the prescription for:
-  - shipping service (e.g., "UPS 2-Day Refrigerated (EP)")
-  - recipient name (e.g., "MEGAN DEL CORRAL")
-  - full recipient address (multi-line)
-  - signature requirement (true/false based on whether "Signature Required" is mentioned)
-
-- Treat shipping as a dedicated section in the response JSON. Do not bury this inside any nested field.
-- Base all fields purely on actual content in the prescription. Do not fabricate missing values.
-
-Return ONLY valid JSON in the following format:
-{
-    "compounding_required": boolean,
-    "compounded_medications": [
-        {
-            "name": "medication name",
-            "type": "cream/gel/injection/suspension (based on actual content)",
-            "facility_type_required": "503A/503B (based on medication and quantity)",
-            "shipping_allowed": boolean,
-            "restrictions": ["list of restrictions"]
-        }
-    ],
-    "vial_type_required": "503A/503B (based on medication)",
-    "shipping_restrictions": [
-        {
-            "restriction_type": "state_ban/clinic_only/special_handling",
-            "description": "what is restricted",
-            "affected_medications": ["list of meds"]
-        }
-    ],
-    "shipping_details": {
-        "service": "e.g., UPS 2-Day Refrigerated (EP)",
-        "recipient_name": "full name from prescription",
-        "recipient_address": "full address from prescription",
-        "signature_required": true or false
-    },
-    "recipient_type": "patient/clinic/hospital (based on context)",
-    "compliance_status": "compliant/non-compliant/requires_review",
-    "alerts": [
-        {
-            "type": "error/warning/info",
-            "message": "compliance issue description",
-            "severity": 1-5
-        }
-    ]
-}
-"""
-
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("human", 
-             "Prescription OCR Text:\n{ocr_text}\n\n"
-             "Check compounding compliance:\n"
-             "Medications: {medications}\n"
-             "Patient: {patient_info}\n"
-             "State Info: {state_compliance}")
-        ])
-
-        parser = JsonOutputParser()
-        chain = prompt | self.llm | parser
-
-        # Add human message for audit
-        human_message = HumanMessage(content="Checking compounding compliance and shipping governance")
-        state["messages"].append(human_message)
-
-        compliance_result = chain.invoke({
-            "ocr_text": ocr_text,
-            "medications": json.dumps(medications, indent=2),
-            "patient_info": json.dumps(patient_info, indent=2),
-            "state_compliance": json.dumps(state_compliance, indent=2)
-        })
-
-        for alert in compliance_result.get("alerts", []):
-            self._add_alert(alert["type"], "COMPOUNDING_COMPLIANCE", alert["message"], alert["severity"], True)
-
-        ai_message = AIMessage(content=f"Compounding compliance check complete. Status: {compliance_result.get('compliance_status', 'unknown')}")
-        state["messages"].append(ai_message)
-
-        self._add_audit_entry("COMPOUNDING_COMPLIANCE", "Compounding compliance check completed", compliance_result)
-
-        state["compounding_compliance"] = compliance_result
-        return state
-
-    except Exception as e:
-        self._add_alert("error", "COMPOUNDING_COMPLIANCE", f"Compounding compliance check failed: {str(e)}", 4, True)
-        state["compounding_compliance"] = {"error": str(e)}
-        return state
-
+            Return JSON (place "medical necessity documentation" at the top, followed by "diagnosis", and include "LOV" if applicable):
+            {{
+                "required_documents": [
+                    {{
+                        "document_type": "Medical Necessity Documentation (EGS/CDS)",
+                        "required": boolean,
+                        "present": boolean,
+                        "verification_status": "verified/missing/expired",
+                        "expiration_date": "YYYY-MM-DD or null"
+                    }},
+                    {{
+                        "document_type": "Diagnosis Documentation",
+                        "required": boolean,
+                        "present": boolean,
+                        "verification_status": "verified/missing/expired",
+                        "expiration_date": "YYYY-MM-DD or null"
+                    }},
+                    {{
+                        "document_type": "LOV (Letter of Verification)",
+                        "required": boolean,
+                        "present": boolean,
+                        "verification_status": "verified/missing/expired",
+                        "expiration_date": "YYYY-MM-DD or null"
+                    }},
+                    ...
+                ],
+                "diagnosis_codes": [
+                    {{
+                        "code": "",
+                        "description": "",
+                        "verified": boolean,
+                        "supports_medications": boolean
+                    }}
+                ],
+                "lab_results": [
+                    {{
+                        "test_name": "",
+                        "required_value": "",
+                        "actual_value": "",
+                        "date": "YYYY-MM-DD",
+                        "within_range": boolean
+                    }}
+                ],
+                "consent_forms": {{
+                    "informed_consent_present": boolean,
+                    "expiration_date": "YYYY-MM-DD or null",
+                    "special_agreements": []
+                }},
+                "prior_authorization": {{
+                    "required": boolean,
+                    "on_file": boolean,
+                    "expiration": "YYYY-MM-DD or null"
+                }},
+                "compliance_score": 0.0-1.0,
+                "missing_documents": [],
+                "blocking_issues": [],
+                "recommendations": [],
+                "alerts": []
+            }}"""
+            
+            prompt_template = ChatPromptTemplate.from_messages([
+                ("system", system_prompt),
+                ("human", "Validate clinical documentation: Medications: {medications}, Patient: {patient_info}, State: {state_data}")
+            ])
+            
+            input_vars = {
+                "medications": json.dumps(medications),
+                "patient_info": json.dumps(patient_info),
+                "state_data": json.dumps(state_compliance)
+            }
+            # Add to messages
+            human_message = HumanMessage(content="Checking clinical documentation")
+            state["messages"].append(human_message)
+            
+            documentation_result = self._invoke_llm_chain(
+                prompt_template,
+                input_vars
+            )
+            
+            # Add AI response to messages
+            ai_message = AIMessage(content=f"Clinical documentation check complete. Status: {documentation_result.get('compliance_status', 'unknown')}")
+            state["messages"].append(ai_message)
+            
+            self._add_audit_entry("CLINICAL_DOCUMENTATION", "Clinical documentation check completed", documentation_result)
+            
+            state["clinical_documentation"] = documentation_result
+            return state
+        except Exception as e:
+            self._add_alert("error", "CLINICAL_DOCUMENTATION", f"Clinical documentation check failed: {str(e)}", 4, True)
+            state["clinical_documentation"] = {"error": str(e)}
+            return state
     def case_summary_agent(self, state: RxState) -> RxState:
         """Agent 10: Case Summary Generation - Comprehensive Analysis"""
         try:
