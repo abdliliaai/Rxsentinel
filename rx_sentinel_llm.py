@@ -834,12 +834,12 @@ class RxSentinelAgents:
             state["bud_validation"] = {"error": str(e)}
             return state
 
-    def compounding_compliance_agent(self, state: RxState) -> RxState:
+def compounding_compliance_agent(self, state: RxState) -> RxState:
     """Agent 8: Compounded Medication & Shipping Governance using LLM"""
-        try:
-            medications = state["prescription_data"].get("Medications", [])
-            patient_info = state["prescription_data"].get("Patient Info", {})
-            state_compliance = state.get("state_compliance", {})
+    try:
+        medications = state["prescription_data"].get("Medications", [])
+        patient_info = state["prescription_data"].get("Patient Info", {})
+        state_compliance = state.get("state_compliance", {})
             
             # FIXED: Escaped JSON structure with double curly braces
             system_prompt = """You are a Compounding Compliance Agent responsible for compounded medication regulations and shipping governance.
