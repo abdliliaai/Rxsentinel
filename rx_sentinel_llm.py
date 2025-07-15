@@ -835,7 +835,6 @@ class RxSentinelAgents:
             return state
 
     def compounding_compliance_agent(self, state: RxState) -> RxState:
-      def compounding_compliance_agent(self, state: RxState) -> RxState:
     """Agent 8: Compounded Medication & Shipping Governance using LLM"""
     try:
         medications = state["prescription_data"].get("Medications", [])
