@@ -134,6 +134,13 @@ class RxSentinelAgents:
             - Pharmacy information (name, address, phone)
             - Any stamps, signatures, or official markings
             - If the signature is not clearly visible, set "Signature Present" to false. This must always be included.
+            Clarification on Quantity and CDS:
+            - Quantity must always be a clear number with unit (e.g., '1 vial', '30 tablets').
+            - Do NOT include any Clinical Difference Statement in the Quantity field.
+            - Clinical Difference Statements (e.g., notes about dose titration or compounding necessity) must be placed in the "Quality_Notes" field within the Medication object.
+            - If CDS is present after the dosage or frequency, isolate it and map only to Quality_Notes.
+            IMPORTANT: For compound medications, if you recognize any of the following medications, replace the quantity field with the corresponding medical justification text:
+
             - Very important: Check if any medication is a controlled substance. If so, set "Is Controlled" to true and provide the correct "Controlled Schedule" (e.g., Schedule II, III, etc.)
            
             If a medication is partially illegible or missing details like frequency or duration, include it anyway with unknown fields marked as "unknown".
@@ -145,13 +152,7 @@ class RxSentinelAgents:
             - Creams/Gels: Use volume measurements like "30 ML", "15 ML"
             - Injectables: Use volume measurements like "10 ML", "5 ML", "2 ML"
             - Troches/ODT: Use numeric counts like "30", "60"
-            Clarification on Quantity and CDS:
-            - Quantity must always be a clear number with unit (e.g., '1 vial', '30 tablets').
-            - Do NOT include any Clinical Difference Statement in the Quantity field.
-            - Clinical Difference Statements (e.g., notes about dose titration or compounding necessity) must be placed in the "Quality_Notes" field within the Medication object.
-            - If CDS is present after the dosage or frequency, isolate it and map only to Quality_Notes.
-            IMPORTANT: For compound medications, if you recognize any of the following medications, replace the quantity field with the corresponding medical justification text:
-
+      
             COMPOUND MEDICATION JUSTIFICATIONS:
             - ACNE ULTRA (CLINDAMYCIN PHOSPHATE / NIACINAMIDE / TRETINOIN): "The patient requires compounded Clindamycin/Niacinamide/Tretinoin combination gel to facilitate appropriate distribution and absorption to ensure patient receives the necessary dosage strength."
             - ANASTROZOLE: "The patient requires compounded Anastrozole tablets due to the commercial tablet being small, coated and unscored. If patient were to attempt to split the tablet, the dose would be inaccurate."
