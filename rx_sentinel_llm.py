@@ -909,7 +909,7 @@ Return ONLY valid JSON in the following format:
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
-            ("human", 
+            ("human",
              "Prescription OCR Text:\n{ocr_text}\n\n"
              "Check compounding compliance:\n"
              "Medications: {medications}\n"
@@ -947,7 +947,6 @@ Return ONLY valid JSON in the following format:
         state["compounding_compliance"] = {"error": str(e)}
         return state
 
-    
     def clinical_documentation_agent(self, state: RxState) -> RxState:
   """Agent 8: Compounded Medication & Shipping Governance using LLM"""
     try:
