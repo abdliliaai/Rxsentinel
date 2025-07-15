@@ -851,7 +851,12 @@ class RxSentinelAgents:
             4. State-specific compounding restrictions
             5. Injectable compound restrictions
             6. Vial type requirements
-            7. Extract complete shipping details directly from the prescription
+            7. - Extract and return **exactly** what is written in the prescription for:
+               - 📦 **Shipping service** — look for phrases like "UPS", "FedEx", "2-Day", "Overnight", etc., usually near or below the recipient address or at the bottom of the prescription
+               - 🧑‍💼 **Recipient name**
+               - 🏠 **Full recipient address** (multi-line if needed)
+               -  🖊️ **Signature required** — true/false based on whether "Signature Required" is mentioned
+
 
             Key restrictions:
             - MA, CO, WA, OR, VT ban certain injectable compounds
